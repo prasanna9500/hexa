@@ -1,0 +1,999 @@
+#### CFT for Backend resources ####
+AWSTemplateFormatVersion: 2010-09-09
+Transform: AWS::Serverless-2016-10-31
+Metadata:
+  Generator: former2
+Description: 'Platform API : Consolidated templates'
+Globals:
+  Function:
+    Runtime: nodejs12.x
+    Timeout: 30
+    Tags:
+      StageName:
+        Ref: StageName
+    VpcConfig:
+      SecurityGroupIds:
+      - sg-0fe61560ca97d5798
+      - sg-0988f6013f5177afa
+      SubnetIds:
+      - subnet-06bb0bae9e0274329
+      - subnet-0ff63d7f49c5cb207
+    Environment:
+      Variables:
+        db_env:
+          Ref: StageName
+  Api:
+    OpenApiVersion: 3.0.1
+### Declaring Parameter #####           
+Parameters:
+  StackName:
+    Type: String
+    Default: DEFAULT
+  StageName:
+    Type: String
+    Default: latest
+  S3BucketName:
+    Type: String
+    Description: S3 bucket in which the Swagger specification can be found.
+  EnvID:
+    Type: String
+    Description: Environemnt identifier.(Dev,QA,UAT)
+### Resource creation ####
+####LAMBDA###
+Resources:
+  LambdaFunction:
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      Description: platform-api-reports-job-scheduler
+      Environment:
+        Variables:
+          SOURCE_ARN: !Sub 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${StageName}'
+          LAMBDA_FUNCTION: !Ref StageName
+          REGION: !Ref 'AWS::Region'
+      FunctionName: !Sub ${StackName}-reports-job-scheduler
+      Handler: lambda.handler
+      Code:
+        S3Bucket: cicd-demo-indeez
+        S3Key: !Sub '${StackName}-report.zip'
+      MemorySize: 512
+      Role: !Sub 'arn:aws:iam::${AWS::AccountId}:role/dev-reports-job-scheduler-executor'
+      Runtime: nodejs12.x
+      Timeout: 300
+      TracingConfig:
+        Mode: PassThrough
+      VpcConfig:
+        SubnetIds:
+          - subnet-06bb0bae9e0274329
+          - subnet-0ff63d7f49c5cb207
+        SecurityGroupIds:
+          - sg-0988f6013f5177afa
+          - sg-0fe61560ca97d5798
+  LambdaFunction2:
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      Description: platform-api-pdf-generator
+      FunctionName: !Sub ${StackName}-pdf-generator
+      Handler: generate-pdf.generatePDFAndStore
+      Code:
+        S3Bucket: cicd-demo-indeez
+        S3Key: !Sub '${StackName}-pdf_generator.zip'
+      MemorySize: 512
+      Role: !Sub 'arn:aws:iam::${AWS::AccountId}:role/pdf-generator-executor'
+      Runtime: nodejs12.x
+      Timeout: 300
+      TracingConfig:
+        Mode: PassThrough
+      VpcConfig:
+        SubnetIds:
+          - subnet-06bb0bae9e0274329
+          - subnet-0ff63d7f49c5cb207
+        SecurityGroupIds:
+          - sg-0036ccdf63277919f
+          - sg-0988f6013f5177afa
+          - sg-0fe61560ca97d5798
+      Layers:
+        - !Sub >-
+          arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:layer:chrome-aws-lambda:1
+        - !Sub 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:layer:pg:2'
+  LambdaFunction3:
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      Description: platform-api-post-auth
+      Environment:
+        Variables:
+          PGHOST: !Sub 'indeez-db-dev.cl29oengynde.${AWS::Region}.rds.amazonaws.com'
+          PGUSER: postgres
+          PGDATABASE: indeez_db_dev
+          PGPASSWORD: 'JJ-^XC!5#SIzTL]Jg;I0ioAY|SqLwy1l'
+      FunctionName: !Sub ${StackName}-post-auth
+      Handler: lambda.postAuth
+      Code:
+        S3Bucket: cicd-demo-indeez
+        S3Key: !Sub '${StackName}-post_auth.zip'
+      MemorySize: 512
+      Role: !Sub >-
+        arn:aws:iam::${AWS::AccountId}:role/service-role/indeez_post_auth-role-58ewsfcj
+      Runtime: nodejs12.x
+      Timeout: 303
+      TracingConfig:
+        Mode: PassThrough
+      VpcConfig:
+        SubnetIds:
+          - subnet-06bb0bae9e0274329
+          - subnet-0ff63d7f49c5cb207
+        SecurityGroupIds:
+          - sg-0988f6013f5177afa
+          - sg-0fe61560ca97d5798
+      Layers:
+        - !Sub 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:layer:busboy:2'
+        - !Sub 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:layer:pg:2'
+  LambdaFunction4:
+        Type: "AWS::Lambda::Function"
+        Properties:
+            Description: Customize email using Custom trigger
+            FunctionName: !Sub ${StackName}-Cognito-Customize-Email
+            Handler: "index.cognito_customize_email"
+            Code: 
+                S3Bucket: "cicd-demo-indeez"
+                S3Key: !Sub '${StackName}-customize_email.zip'
+            MemorySize: 512
+            Role: !Sub "arn:aws:iam::${AWS::AccountId}:role/service-role/customize_Verification_Email-role-vh5g2rjf"
+            Runtime: "nodejs12.x"
+            Timeout: 300
+            TracingConfig: 
+                Mode: "PassThrough"
+ #### API Gateway###                       
+  RestApi:
+    Type: AWS::Serverless::Api
+    Properties:
+    #  Auth:
+    #    DefaultAuthorizer: PlatformServiceTokenAuthorizer
+    #    Authorizers:
+    #      PlatformServiceTokenAuthorizer:
+    #        FunctionArn: ! Sub 'arn:aws:lambda:eu-central-1:838385783381:function:platform-api-custom-authorizer-${StageName}'
+      Name:
+        Fn::Sub: ${StackName}-RestApi
+      StageName:
+        Ref: StageName
+      DefinitionBody:
+        Fn::Transform:
+          Name: AWS::Include
+          Parameters:
+            Location:
+              Fn::Join:
+              - ''
+              - - s3://
+                - Ref: S3BucketName
+                - /platform-swagger.yaml
+  
+  GWAuth:
+    Type: AWS::ApiGateway::Authorizer
+    Properties: 
+      AuthorizerUri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${PlatformServiceCustomAuthFunction.Arn}/invocations
+      RestApiId: !Ref RestApi
+      Type: REQUEST
+      IdentitySource: method.request.header.authorization
+      Name: !Sub ${StackName}-Custom-Auth
+
+  GWAuthPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !GetAtt PlatformServiceCustomAuthFunction.Arn
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RestApi}/authorizers/${GWAuth}
+
+  PlatformServiceCustomAuthFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: !Join ["-", [ 'platform-api', 'custom-authorizer']]
+      FunctionName:
+        Fn::Sub:  ${StackName}-custom-authorizer
+      CodeUri: s3://com.deploy.platform.dev/29c364d336fd0e31a1d637a9c6d49f5f
+      Handler: authorizer.handler
+      Runtime: nodejs12.x
+      Policies:
+      - AWSLambdaBasicExecutionRole
+      - AWSLambdaVPCAccessExecutionRole
+      - arn:aws:iam::838385783381:policy/indeez_secret_manager
+  PlatformMainFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName:
+        Fn::Sub: ${StackName}-main-function
+      CodeUri: s3://com.deploy.platform.dev/232b5b5fdbd0153611e0ac5ee3194dfb
+      Description: Indeez Platform API using Cloudformation template & OpenAPI
+      Handler: apis.proxyRouter
+      Events:
+        Get:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: RestApi
+            Path: /api/v1/*
+            Method: GET
+      Policies:
+      - AmazonVPCFullAccess
+      - AWSLambdaBasicExecutionRole
+      - AWSLambdaVPCAccessExecutionRole
+      - arn:aws:iam::838385783381:policy/indeez_secret_manager
+### Cognito #######      
+  CognitoUserPool:
+    Type: 'AWS::Cognito::UserPool'
+    Properties:
+      UserPoolName: !Sub ${StackName}-user-pool
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+          RequireUppercase: true
+          RequireLowercase: true
+          RequireNumbers: true
+          RequireSymbols: true
+      LambdaConfig:
+        CustomMessage: >-
+          arn:aws:lambda:eu-central-1:838385783381:function:Cognito-Customize-Email
+        PostAuthentication: arn:aws:lambda:eu-central-1:838385783381:function:poc-post-auth
+      Schema:
+        - Name: sub
+          AttributeDataType: String
+          DeveloperOnlyAttribute: false
+          Mutable: false
+          Required: true
+          StringAttributeConstraints:
+            MinLength: '1'
+            MaxLength: '2048'
+        - Name: name
+          AttributeDataType: String
+          DeveloperOnlyAttribute: false
+          Mutable: true
+          Required: false
+          StringAttributeConstraints:
+            MinLength: '0'
+            MaxLength: '2048'
+        - Name: given_name
+          AttributeDataType: String
+          DeveloperOnlyAttribute: false
+          Mutable: true
+          Required: false
+          StringAttributeConstraints:
+            MinLength: '0'
+            MaxLength: '2048'
+        - Name: family_name
+          AttributeDataType: String
+          DeveloperOnlyAttribute: false
+          Mutable: true
+          Required: false
+          StringAttributeConstraints:
+            MinLength: '0'
+            MaxLength: '2048'
+        - Name: middle_name
+          AttributeDataType: String
+          DeveloperOnlyAttribute: false
+          Mutable: true
+          Required: false
+          StringAttributeConstraints:
+            MinLength: '0'
+            MaxLength: '2048'
+        - Name: nickname
+          AttributeDataType: String
+          DeveloperOnlyAttribute: false
+          Mutable: true
+          Required: false
+          StringAttributeConstraints:
+            MinLength: '0'
+            MaxLength: '2048'
+        - Name: preferred_username
+          AttributeDataType: String
+          DeveloperOnlyAttribute: false
+          Mutable: true
+          Required: false
+          StringAttributeConstraints:
+            MinLength: '0'
+            MaxLength: '2048'
+        - Name: profile
+          AttributeDataType: String
+          DeveloperOnlyAttribute: false
+          Mutable: true
+          Required: false
+          StringAttributeConstraints:
+            MinLength: '0'
+            MaxLength: '2048'
+        - Name: picture
+          AttributeDataType: String
+          DeveloperOnlyAttribute: false
+          Mutable: true
+          Required: false
+          StringAttributeConstraints:
+            MinLength: '0'
+            MaxLength: '2048'
+        - Name: website
+          AttributeDataType: String
+          DeveloperOnlyAttribute: false
+          Mutable: true
+          Required: false
+          StringAttributeConstraints:
+            MinLength: '0'
+            MaxLength: '2048'
+        - Name: email
+          AttributeDataType: String
+          DeveloperOnlyAttribute: false
+          Mutable: true
+          Required: true
+          StringAttributeConstraints:
+            MinLength: '0'
+            MaxLength: '2048'
+        - Name: email_verified
+          AttributeDataType: Boolean
+          DeveloperOnlyAttribute: false
+          Mutable: true
+          Required: false
+        - Name: gender
+          AttributeDataType: String
+          DeveloperOnlyAttribute: false
+          Mutable: true
+          Required: false
+          StringAttributeConstraints:
+            MinLength: '0'
+            MaxLength: '2048'
+        - Name: birthdate
+          AttributeDataType: String
+          DeveloperOnlyAttribute: false
+          Mutable: true
+          Required: false
+          StringAttributeConstraints:
+            MinLength: '10'
+            MaxLength: '10'
+        - Name: zoneinfo
+          AttributeDataType: String
+          DeveloperOnlyAttribute: false
+          Mutable: true
+          Required: false
+          StringAttributeConstraints:
+            MinLength: '0'
+            MaxLength: '2048'
+        - Name: locale
+          AttributeDataType: String
+          DeveloperOnlyAttribute: false
+          Mutable: true
+          Required: false
+          StringAttributeConstraints:
+            MinLength: '0'
+            MaxLength: '2048'
+        - Name: phone_number
+          AttributeDataType: String
+          DeveloperOnlyAttribute: false
+          Mutable: true
+          Required: false
+          StringAttributeConstraints:
+            MinLength: '0'
+            MaxLength: '2048'
+        - Name: address
+          AttributeDataType: String
+          DeveloperOnlyAttribute: false
+          Mutable: true
+          Required: false
+          StringAttributeConstraints:
+            MinLength: '0'
+            MaxLength: '2048'
+        - Name: updated_at
+          AttributeDataType: Number
+          DeveloperOnlyAttribute: false
+          Mutable: true
+          Required: false
+          NumberAttributeConstraints:
+            MinValue: '0'
+        - Name: role
+          AttributeDataType: String
+          DeveloperOnlyAttribute: false
+          Mutable: true
+          Required: false
+          StringAttributeConstraints:
+            MinLength: '1'
+            MaxLength: '20'
+        - Name: partner_id
+          AttributeDataType: String
+          DeveloperOnlyAttribute: false
+          Mutable: true
+          Required: false
+          StringAttributeConstraints:
+            MinLength: '0'
+            MaxLength: '40'
+        - Name: tpa_id
+          AttributeDataType: String
+          DeveloperOnlyAttribute: false
+          Mutable: true
+          Required: false
+          StringAttributeConstraints:
+            MinLength: '0'
+            MaxLength: '40'
+        - Name: phone
+          AttributeDataType: String
+          DeveloperOnlyAttribute: false
+          Mutable: true
+          Required: false
+          StringAttributeConstraints:
+            MinLength: '1'
+            MaxLength: '15'
+        - Name: isactive
+          AttributeDataType: Number
+          DeveloperOnlyAttribute: false
+          Mutable: true
+          Required: false
+          NumberAttributeConstraints:
+            MinValue: '0'
+            MaxValue: '1'
+        - Name: mobile
+          AttributeDataType: String
+          DeveloperOnlyAttribute: false
+          Mutable: true
+          Required: false
+          StringAttributeConstraints:
+            MinLength: '1'
+            MaxLength: '30'
+        - Name: mobileno
+          AttributeDataType: String
+          DeveloperOnlyAttribute: false
+          Mutable: true
+          Required: false
+          StringAttributeConstraints:
+            MinLength: '1'
+            MaxLength: '100'
+      AutoVerifiedAttributes:
+        - email
+      SmsVerificationMessage: 'Your verification code is {####}. '
+      EmailVerificationMessage: 'Your verification code is {####}. '
+      EmailVerificationSubject: Your verification code
+      SmsAuthenticationMessage: 'Your authentication code is {####}. '
+      MfaConfiguration: 'OFF'
+      EmailConfiguration:
+        EmailSendingAccount: COGNITO_DEFAULT
+      AdminCreateUserConfig:
+        AllowAdminCreateUserOnly: false
+        InviteMessageTemplate:
+          SMSMessage: 'Your username is {username} and temporary password is {####}. '
+          EmailMessage: 'Your username is {username} and temporary password is {####}. '
+          EmailSubject: Your temporary password
+      UserPoolTags: {}
+      AccountRecoverySetting:
+        RecoveryMechanisms:
+          - Priority: 1
+            Name: verified_email
+          - Priority: 2
+            Name: verified_phone_number
+      UsernameConfiguration:
+        CaseSensitive: false
+      VerificationMessageTemplate:
+        SmsMessage: 'Your verification code is {####}. '
+        EmailMessage: 'Your verification code is {####}. '
+        EmailSubject: Your verification code
+        EmailMessageByLink: |
+          Hello....
+          {##Verify Email##}
+        EmailSubjectByLink: Activate your account
+        DefaultEmailOption: CONFIRM_WITH_LINK
+  CognitoUserPoolClient:
+    Type: 'AWS::Cognito::UserPoolClient'
+    Properties:
+      UserPoolId: !Ref CognitoUserPool
+      ClientName: !Sub '${StackName}-app-client'
+      RefreshTokenValidity: 30
+      ReadAttributes:
+        - address
+        - birthdate
+        - 'custom:isactive'
+        - 'custom:mobileno'
+        - 'custom:partner_id'
+        - 'custom:role'
+        - 'custom:tpa_id'
+        - email
+        - email_verified
+        - family_name
+        - gender
+        - given_name
+        - locale
+        - middle_name
+        - name
+        - nickname
+        - phone_number
+        - picture
+        - preferred_username
+        - profile
+        - updated_at
+        - website
+        - zoneinfo
+      WriteAttributes:
+        - address
+        - birthdate
+        - 'custom:isactive'
+        - 'custom:mobileno'
+        - 'custom:partner_id'
+        - 'custom:role'
+        - 'custom:tpa_id'
+        - email
+        - family_name
+        - gender
+        - given_name
+        - locale
+        - middle_name
+        - name
+        - nickname
+        - phone_number
+        - picture
+        - preferred_username
+        - profile
+        - updated_at
+        - website
+        - zoneinfo
+      ExplicitAuthFlows:
+        - ALLOW_ADMIN_USER_PASSWORD_AUTH
+        - ALLOW_CUSTOM_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+        - ALLOW_USER_PASSWORD_AUTH
+        - ALLOW_USER_SRP_AUTH
+      PreventUserExistenceErrors: ENABLED
+      AllowedOAuthFlowsUserPoolClient: false
+      IdTokenValidity: 60
+      AccessTokenValidity: 60
+      TokenValidityUnits:
+        AccessToken: minutes
+        IdToken: minutes
+        RefreshToken: days
+  CognitoUserPoolDomain:
+    Type: 'AWS::Cognito::UserPoolDomain'
+    Properties:
+      Domain: !Sub '${StackName}-domain'
+      UserPoolId: !Ref CognitoUserPool
+  CognitoUserPoolGroup1:
+    Type: 'AWS::Cognito::UserPoolGroup'
+    Properties:
+      GroupName: admin
+      UserPoolId: !Ref CognitoUserPool
+  CognitoUserPoolGroup2:
+    Type: 'AWS::Cognito::UserPoolGroup'
+    Properties:
+      GroupName: tpa
+      UserPoolId: !Ref CognitoUserPool
+  CognitoUserPoolGroup3:
+    Type: 'AWS::Cognito::UserPoolGroup'
+    Properties:
+      GroupName: customer
+      UserPoolId: !Ref CognitoUserPool
+  CognitoUserPoolGroup4:
+    Type: 'AWS::Cognito::UserPoolGroup'
+    Properties:
+      GroupName: partner
+      UserPoolId: !Ref CognitoUserPool
+#### Federation identity pool #######      
+  CognitoIdentityPool:
+    Type: 'AWS::Cognito::IdentityPool'
+    Properties:
+      IdentityPoolName: !Sub '${StackName}-groups-pool'
+      AllowUnauthenticatedIdentities: false
+      CognitoIdentityProviders:
+        - ProviderName: !Sub 'cognito-idp.eu-central-1.amazonaws.com/${CognitoUserPool}'
+          ClientId: !Ref CognitoUserPoolClient
+          ServerSideTokenCheck: false
+  # CognitoIdentityPoolRoleAttachment:
+  #   Type: 'AWS::Cognito::IdentityPoolRoleAttachment'
+  #   Properties:
+  #     IdentityPoolId: !Ref CognitoIdentityPool
+  #     Roles:
+  #       authenticated: 'arn:aws:iam::838385783381:role/Cognito_Auth_Role'
+  #       unauthenticated: 'arn:aws:iam::838385783381:role/Cognito_Auth_Role'
+  #### S3 Bucket for File upload ####
+  S3uploadBucket:
+    Type: "AWS::S3::Bucket"
+    Properties:
+            BucketName: !Sub "${StageName}-${EnvID}-data1-indeez"
+            BucketEncryption: 
+                ServerSideEncryptionConfiguration: 
+                  - 
+                    ServerSideEncryptionByDefault: 
+                        SSEAlgorithm: "AES256"
+                    BucketKeyEnabled: false
+            CorsConfiguration: 
+                CorsRules: 
+                  - 
+                    AllowedHeaders: 
+                      - "*"
+                    AllowedMethods: 
+                      - "PUT"
+                      - "POST"
+                      - "DELETE"
+                      - "GET"
+                    AllowedOrigins: 
+                      - "*"
+            LoggingConfiguration: 
+                DestinationBucketName: indeez-logging-bucket
+                LogFilePrefix: ""
+            VersioningConfiguration: 
+                Status: "Enabled"
+### S3 Bucket for TPL documents #####                
+  S3tplBucket:
+    Type: "AWS::S3::Bucket"
+    Properties:
+            BucketName: !Sub "${StageName}-${EnvID}-tpl-data1-indeez"
+            BucketEncryption: 
+                ServerSideEncryptionConfiguration: 
+                  - 
+                    ServerSideEncryptionByDefault: 
+                        SSEAlgorithm: "AES256"
+                    BucketKeyEnabled: false
+            CorsConfiguration: 
+                CorsRules: 
+                  - 
+                    AllowedHeaders: 
+                      - "*"
+                    AllowedMethods: 
+                      - "PUT"
+                      - "POST"
+                      - "DELETE"
+                      - "GET"
+                    AllowedOrigins: 
+                      - "*"
+            LoggingConfiguration: 
+                DestinationBucketName: indeez-logging-bucket
+                LogFilePrefix: ""
+            VersioningConfiguration: 
+                Status: "Enabled" 
+### Persona wise-IAM policy creation ######               
+  adminpolicy:
+    Type: "AWS::IAM::ManagedPolicy"
+    Properties:
+            ManagedPolicyName: !Sub '${StackName}-fed-admin-policy'
+            Path: "/"
+            PolicyDocument: !Sub |
+                {
+                 "Version": "2012-10-17",
+                 "Statement": [
+                     {
+                         "Action": [
+                             "s3:GetObject",
+                             "s3:PutObject"
+                         ],
+                         "Effect": "Allow",
+                         "Resource": [
+                             "arn:aws:s3:::${S3uploadBucket}/claims/*"
+                         ]
+                     },
+                     {
+                         "Action": [
+                             "s3:GetObject",
+                             "s3:PutObject",
+                             "s3:DeleteObject"
+                         ],
+                         "Effect": "Allow",
+                         "Resource": [
+                             "arn:aws:s3:::${S3uploadBucket}/partner/*"
+                         ]
+                     },
+                     {
+                         "Action": [
+                             "s3:GetObject",
+                             "s3:PutObject"
+                         ],
+                         "Effect": "Allow",
+                         "Resource": [
+                             "arn:aws:s3:::${S3uploadBucket}/users/*"
+                         ]
+                     },
+                     {
+                         "Action": [
+                             "s3:GetObject"
+                         ],
+                         "Effect": "Allow",
+                         "Resource": [
+                             "arn:aws:s3:::indeez-reporting-bucket/dev/*"
+                         ]
+                     },
+                     {
+                         "Action": [
+                             "s3:PutObject",
+                             "s3:DeleteObject"
+                         ],
+                         "Effect": "Allow",
+                         "Resource": [
+                             "arn:aws:s3:::${S3uploadBucket}/partner/assets/logo/*"
+                         ]
+                     },
+                     {
+                         "Action": [
+                             "s3:GetObject",
+                             "s3:PutObject"
+                         ],
+                         "Effect": "Allow",
+                         "Resource": [
+                             "arn:aws:s3:::indeez-tpl-data1-dev/claims/*"
+                         ]
+                     }
+                 ]
+                }
+  customerpolicy:
+    Type: "AWS::IAM::ManagedPolicy"
+    Properties:
+            ManagedPolicyName: !Sub '${StackName}-fed-customer-policy'
+            Path: "/"
+            PolicyDocument: !Sub |
+                {
+                 "Version": "2012-10-17",
+                 "Statement": [
+                     {
+                         "Action": [
+                             "s3:GetObject",
+                             "s3:PutObject"
+                         ],
+                         "Effect": "Allow",
+                         "Resource": [
+                             "arn:aws:s3:::${S3uploadBucket}/claims/*"
+                         ]
+                     },
+                     {
+                         "Action": [
+                             "s3:GetObject",
+                             "s3:PutObject",
+                             "s3:DeleteObject"
+                         ],
+                         "Effect": "Allow",
+                         "Resource": [
+                             "arn:aws:s3:::${S3uploadBucket}/partner/*"
+                         ]
+                     },
+                     {
+                         "Action": [
+                             "s3:GetObject",
+                             "s3:PutObject"
+                         ],
+                         "Effect": "Allow",
+                         "Resource": [
+                             "arn:aws:s3:::${S3uploadBucket}/users/*"
+                         ]
+                     },
+                     {
+                         "Action": [
+                             "s3:GetObject"
+                         ],
+                         "Effect": "Allow",
+                         "Resource": [
+                             "arn:aws:s3:::indeez-reporting-bucket/dev/*"
+                         ]
+                     },
+                     {
+                         "Action": [
+                             "s3:PutObject",
+                             "s3:DeleteObject"
+                         ],
+                         "Effect": "Allow",
+                         "Resource": [
+                             "arn:aws:s3:::${S3uploadBucket}/partner/assets/logo/*"
+                         ]
+                     },
+                     {
+                         "Action": [
+                             "s3:GetObject",
+                             "s3:PutObject"
+                         ],
+                         "Effect": "Allow",
+                         "Resource": [
+                             "arn:aws:s3:::indeez-tpl-data1-dev/claims/*"
+                         ]
+                     }
+                 ]
+                }
+  tpapolicy:
+    Type: "AWS::IAM::ManagedPolicy"
+    Properties:
+            ManagedPolicyName: !Sub '${StackName}-fed-tpa-policy'
+            Path: "/"
+            PolicyDocument: !Sub |
+                {
+                 "Version": "2012-10-17",
+                 "Statement": [
+                     {
+                         "Action": [
+                             "s3:GetObject",
+                             "s3:PutObject"
+                         ],
+                         "Effect": "Allow",
+                         "Resource": [
+                             "arn:aws:s3:::${S3uploadBucket}/claims/*"
+                         ]
+                     },
+                     {
+                         "Action": [
+                             "s3:GetObject",
+                             "s3:PutObject",
+                             "s3:DeleteObject"
+                         ],
+                         "Effect": "Allow",
+                         "Resource": [
+                             "arn:aws:s3:::${S3uploadBucket}/partner/*"
+                         ]
+                     },
+                     {
+                         "Action": [
+                             "s3:GetObject",
+                             "s3:PutObject"
+                         ],
+                         "Effect": "Allow",
+                         "Resource": [
+                             "arn:aws:s3:::${S3uploadBucket}/users/*"
+                         ]
+                     },
+                     {
+                         "Action": [
+                             "s3:GetObject"
+                         ],
+                         "Effect": "Allow",
+                         "Resource": [
+                             "arn:aws:s3:::indeez-reporting-bucket/dev/*"
+                         ]
+                     },
+                     {
+                         "Action": [
+                             "s3:PutObject",
+                             "s3:DeleteObject"
+                         ],
+                         "Effect": "Allow",
+                         "Resource": [
+                             "arn:aws:s3:::${S3uploadBucket}/partner/assets/logo/*"
+                         ]
+                     },
+                     {
+                         "Action": [
+                             "s3:GetObject",
+                             "s3:PutObject"
+                         ],
+                         "Effect": "Allow",
+                         "Resource": [
+                             "arn:aws:s3:::indeez-tpl-data1-dev/claims/*"
+                         ]
+                     }
+                 ]
+                }
+  tplpolicy:
+    Type: "AWS::IAM::ManagedPolicy"
+    Properties:
+            ManagedPolicyName: !Sub '${StackName}-fed-tpl-policy'
+            Path: "/"
+            PolicyDocument: !Sub |
+                {
+                 "Version": "2012-10-17",
+                 "Statement": [
+                     {
+                         "Action": [
+                             "s3:GetObject",
+                             "s3:PutObject"
+                         ],
+                         "Effect": "Allow",
+                         "Resource": [
+                             "arn:aws:s3:::${S3uploadBucket}/claims/*"
+                         ]
+                     },
+                     {
+                         "Action": [
+                             "s3:GetObject",
+                             "s3:PutObject",
+                             "s3:DeleteObject"
+                         ],
+                         "Effect": "Allow",
+                         "Resource": [
+                             "arn:aws:s3:::${S3uploadBucket}/partner/*"
+                         ]
+                     },
+                     {
+                         "Action": [
+                             "s3:GetObject",
+                             "s3:PutObject"
+                         ],
+                         "Effect": "Allow",
+                         "Resource": [
+                             "arn:aws:s3:::${S3uploadBucket}/users/*"
+                         ]
+                     },
+                     {
+                         "Action": [
+                             "s3:GetObject"
+                         ],
+                         "Effect": "Allow",
+                         "Resource": [
+                             "arn:aws:s3:::indeez-reporting-bucket/dev/*"
+                         ]
+                     },
+                     {
+                         "Action": [
+                             "s3:PutObject",
+                             "s3:DeleteObject"
+                         ],
+                         "Effect": "Allow",
+                         "Resource": [
+                             "arn:aws:s3:::${S3uploadBucket}/partner/assets/logo/*"
+                         ]
+                     },
+                     {
+                         "Action": [
+                             "s3:GetObject",
+                             "s3:PutObject"
+                         ],
+                         "Effect": "Allow",
+                         "Resource": [
+                             "arn:aws:s3:::indeez-tpl-data1-dev/claims/*"
+                         ]
+                     }
+                 ]
+                }				
+### Pesona wise-IAM Roles ####                 
+  adminrole:
+    Type: "AWS::IAM::Role"
+    Properties:
+            Path: "/"
+            RoleName: !Sub '${StackName}-fed-admin-role'
+            AssumeRolePolicyDocument: !Sub "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Sid\":\"\",\"Effect\":\"Allow\",\"Principal\":{\"Federated\":\"cognito-identity.amazonaws.com\"},\"Action\":\"sts:AssumeRoleWithWebIdentity\",\"Condition\":{\"StringEquals\":{\"cognito-identity.amazonaws.com:aud\":\"${CognitoIdentityPool}\"},\"ForAnyValue:StringLike\":{\"cognito-identity.amazonaws.com:amr\":\"authenticated\"}}}]}"
+            MaxSessionDuration: 3600
+            ManagedPolicyArns: 
+              - !Ref adminpolicy
+            Description: "Allows S3 to call AWS services on your behalf."
+  customerrole:
+    Type: "AWS::IAM::Role"
+    Properties:
+            Path: "/"
+            RoleName: !Sub '${StackName}-fed-customer-role'
+            AssumeRolePolicyDocument: !Sub "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Sid\":\"\",\"Effect\":\"Allow\",\"Principal\":{\"Federated\":\"cognito-identity.amazonaws.com\"},\"Action\":\"sts:AssumeRoleWithWebIdentity\",\"Condition\":{\"StringEquals\":{\"cognito-identity.amazonaws.com:aud\":\"${CognitoIdentityPool}\"},\"ForAnyValue:StringLike\":{\"cognito-identity.amazonaws.com:amr\":\"authenticated\"}}}]}"
+            MaxSessionDuration: 3600
+            ManagedPolicyArns: 
+              - !Ref customerpolicy
+            Description: "Allows S3 to call AWS services on your behalf."
+  tparole:
+    Type: "AWS::IAM::Role"
+    Properties:
+            Path: "/"
+            RoleName: !Sub '${StackName}-fed-tpa-role'
+            AssumeRolePolicyDocument: !Sub "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Sid\":\"\",\"Effect\":\"Allow\",\"Principal\":{\"Federated\":\"cognito-identity.amazonaws.com\"},\"Action\":\"sts:AssumeRoleWithWebIdentity\",\"Condition\":{\"StringEquals\":{\"cognito-identity.amazonaws.com:aud\":\"${CognitoIdentityPool}\"},\"ForAnyValue:StringLike\":{\"cognito-identity.amazonaws.com:amr\":\"authenticated\"}}}]}"
+            MaxSessionDuration: 3600
+            ManagedPolicyArns: 
+              - !Ref tpapolicy
+            Description: "Allows S3 to call AWS services on your behalf."
+  tplrole:
+    Type: "AWS::IAM::Role"
+    Properties:
+            Path: "/"
+            RoleName: !Sub '${StackName}-fed-tpl-role'
+            AssumeRolePolicyDocument: !Sub "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Sid\":\"\",\"Effect\":\"Allow\",\"Principal\":{\"Federated\":\"cognito-identity.amazonaws.com\"},\"Action\":\"sts:AssumeRoleWithWebIdentity\",\"Condition\":{\"StringEquals\":{\"cognito-identity.amazonaws.com:aud\":\"${CognitoIdentityPool}\"},\"ForAnyValue:StringLike\":{\"cognito-identity.amazonaws.com:amr\":\"authenticated\"}}}]}"
+            MaxSessionDuration: 3600
+            ManagedPolicyArns: 
+              - !Ref tplpolicy
+            Description: "Allows S3 to call AWS services on your behalf."
+##### Attaching role with Federation identities #####
+  CognitoIdentityPoolRoleAttachment:
+    Type: "AWS::Cognito::IdentityPoolRoleAttachment"
+    Properties:
+            IdentityPoolId: !Ref CognitoIdentityPool 
+            RoleMappings:
+              cognitoProvider:
+                IdentityProvider: !Join [ "", ["cognito-idp.", !Sub "${AWS::Region}", ".amazonaws.com/", !Ref CognitoUserPool, ":", !Ref CognitoUserPoolClient] ]
+                Type: "Rules"
+                AmbiguousRoleResolution: "AuthenticatedRole"
+                RulesConfiguration: 
+                    Rules: 
+                      - 
+                        Claim: "cognito:groups"
+                        MatchType: "Contains"
+                        Value: "admin"
+                        RoleARN: !GetAtt adminrole.Arn
+                      - 
+                        Claim: "cognito:groups"
+                        MatchType: "Contains"
+                        Value: "customer"
+                        RoleARN: !GetAtt customerrole.Arn
+                      - 
+                        Claim: "cognito:groups"
+                        MatchType: "Contains"
+                        Value: "tpa"
+                        RoleARN: !GetAtt tparole.Arn
+                      - 
+                        Claim: "cognito:groups"
+                        MatchType: "Contains"
+                        Value: "tpl"
+                        RoleARN: !GetAtt tplrole.Arn                        
+            Roles: 
+                authenticated: "arn:aws:iam::838385783381:role/Cognito_Auth_Role"
+                unauthenticated: "arn:aws:iam::838385783381:role/Cognito_Auth_Role"
